@@ -199,4 +199,4 @@ server/
 
 ## Licence
 
-Projet personnel — usage privé.
+MIT Licence
