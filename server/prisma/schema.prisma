@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuditAction {
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  SETTINGS_UPDATED
+  SETTINGS_TEST_SENT
+  VAULT_ITEM_CREATED
+  VAULT_ITEM_UPDATED
+  VAULT_ITEM_DELETED
+  MFA_SETUP_INITIATED
+  MFA_ENABLED
+  MFA_DISABLED
+  MFA_VERIFIED
+  MFA_BACKUP_CODE_USED
+  MFA_BACKUP_CODES_REGENERATED
+  HEALTHCHECK_CONFIG_UPDATED
+  HEALTHCHECK_RUN
+}
+
+enum VaultItemType {
+  LOGIN
+  NOTE
+  CARD
+  IDENTITY
+  API_KEY
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  email        String?   @unique
+  // `passwordHash` = bcrypt du `authHash` zéro-connaissance dérivé côté
+  // navigateur (PBKDF2 du mot de passe maître). Le serveur ne voit jamais le
+  // mot de passe maître en clair.
+  passwordHash String
+  role         UserRole  @default(USER)
+  tokenVersion Int       @default(0)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Chiffrement zéro-connaissance des données :
+  // - `protectedVaultKey` : clé de chiffrement AES-256 emballée par la clé
+  //   dérivée du mot de passe maître. NULL tant que Lockey n'a pas été initialisé
+  //   (cas d'un compte créé par un admin, initialisé à la 1re connexion).
+  // - `recoveryHash` : bcrypt du hash d'authentification du code de
+  //   récupération (porte de secours si le mot de passe maître est oublié).
+  // - `recoveryProtectedKey` : même clé de chiffrement, emballée par le code de
+  //   récupération.
+  // Le serveur ne peut déballer aucune de ces clés.
+  protectedVaultKey    String?
+  recoveryHash         String?
+  recoveryProtectedKey String?
+
+  // Déverrouillage par passkey (WebAuthn + extension PRF). La clé de chiffrement est
+  // emballée par un secret dérivé de la passkey ; le serveur ne stocke que
+  // l'identifiant de credential, le sel PRF et le blob emballé — jamais de quoi
+  // déballer la clé.
+  passkeyCredentialId  String?
+  passkeyPrfSalt       String?
+  passkeyProtectedKey  String?
+
+  // 2FA TOTP. `mfaSecret` est chiffré (vault:v2:...) une fois activé.
+  // `mfaPendingSecret` contient le secret en attente de vérification initiale
+  // (entre setup et enable) ; effacé après enable ou écrasé par un nouveau setup.
+  mfaEnabled        Boolean   @default(false)
+  mfaSecret         String?
+  mfaPendingSecret  String?
+  mfaActivatedAt    DateTime?
+
+  auditLogs      AuditLog[]
+  vaultItems     VaultItem[]
+  mfaBackupCodes MfaBackupCode[]
+}
+
+/// Codes de secours TOTP à usage unique. `codeHash` est un bcrypt du code en
+/// clair (8 caractères [a-z0-9]). `usedAt` marque la consommation — on ne
+/// supprime pas la ligne pour garder une trace audit.
+model MfaBackupCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  action     AuditAction
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username   String?
+  ip         String?
+  userAgent  String?
+  serial     String?
+  details    Json?
+  success    Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+
+  // M6 — chaînage par hash : chaque log embarque le hash du précédent.
+  // Si une ligne est modifiée ou supprimée a posteriori, la chaîne casse et
+  // se vérifie via `npm run verify:audit-chain`.
+  prevHash   String?
+  hash       String?
+
+  @@index([action])
+  @@index([userId])
+  @@index([serial])
+  @@index([createdAt])
+}
+
+/// Élément stocké dans Lockey, chiffré de bout en bout. `encryptedData` est un
+/// blob AES-256-GCM produit dans le navigateur avec la clé de chiffrement
+/// zéro-connaissance : il contient le nom de l'élément, les identifiants, les
+/// notes, les champs personnalisés — tout sauf le `type` (gardé en clair pour
+/// le filtrage et les icônes) et le drapeau `favorite`. Le serveur ne peut
+/// jamais le déchiffrer.
+model VaultItem {
+  id            String        @id @default(cuid())
+  ownerId       String
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  type          VaultItemType
+  favorite      Boolean       @default(false)
+  encryptedData String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([ownerId])
+}
+
+/// Singleton row keyed by `id = "default"`. Stores SMTP config used to send
+/// expiry alerts and notifications. `smtpPass` is encrypted at rest.
+model EmailConfig {
+  id          String   @id @default("default")
+  smtpHost    String?
+  smtpPort    Int      @default(587)
+  smtpSecure  Boolean  @default(false)
+  smtpUser    String?
+  smtpPass    String?
+  fromEmail   String?
+  fromName    String?
+  enabled     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Configuration des healthchecks périodiques (singleton, id="default").
+/// `enabledChecks` liste les keys du catalogue de checks activés (cf.
+/// services/healthcheck.ts CATALOG). `scheduleHour`/`scheduleMinute` définissent
+/// l'heure quotidienne d'exécution (heure locale serveur).
+model HealthCheckConfig {
+  id              String   @id @default("default")
+  enabledChecks   String[] @default([])
+  scheduleHour    Int      @default(6)
+  scheduleMinute  Int      @default(0)
+  scheduleEnabled Boolean  @default(false)
+  lastRunAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Historique des runs healthcheck. Garde les 100 derniers (purge à
+/// l'insertion). `results` est un tableau JSON `[{key, ok, durationMs, message,
+/// severity}]`. `triggeredBy` distingue cron quotidien vs run manuel admin.
+model HealthCheckRun {
+  id             String   @id @default(cuid())
+  startedAt      DateTime @default(now())
+  finishedAt     DateTime?
+  triggeredBy    String   @default("CRON") // CRON | MANUAL
+  triggeredById  String?
+  ok             Boolean  @default(false)
+  okCount        Int      @default(0)
+  failCount      Int      @default(0)
+  results        Json
+  recipientEmail String?
+  emailSent      Boolean  @default(false)
+  emailError     String?
+
+  @@index([startedAt])
+}

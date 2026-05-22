@@ -1,0 +1,164 @@
+/* ===== Theme tokens — light (default) ===== */
+:root {
+  color-scheme: light;
+  --bg: #fafafa;
+  --bg-elev: #ffffff;
+  --bg-soft: #f4f5f7;
+  --bg-hover: #f0f1f3;
+  --bg-sidebar: #ffffff;
+  --border: rgba(15, 23, 42, 0.07);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --border-accent: rgba(8, 145, 178, 0.20);
+  --text: #0a0a0a;
+  --text-dim: rgba(10, 10, 10, 0.62);
+  --text-faint: rgba(10, 10, 10, 0.46);
+  --primary: #0891b2;        /* cyan-600 */
+  --primary-soft: rgba(8, 145, 178, 0.10);
+  --primary-strong: #0e7490; /* cyan-700 */
+  --primary-fg: #ffffff;
+  --gold: #c9a227;           /* gold */
+  --gold-soft: rgba(201, 162, 39, 0.12);
+  --gold-strong: #a17912;
+  --ok: #16a34a;             /* green-600 */
+  --ok-soft: rgba(22, 163, 74, 0.10);
+  --warn: #d97706;           /* amber-600 */
+  --warn-soft: rgba(217, 119, 6, 0.10);
+  --danger: #dc2626;         /* red-600 */
+  --danger-soft: rgba(220, 38, 38, 0.09);
+  --info: #0284c7;
+  --info-soft: rgba(2, 132, 199, 0.10);
+  --purple: #7c3aed;          /* violet-600 */
+  --purple-soft: rgba(124, 58, 237, 0.10);
+  --purple-strong: #6d28d9;
+  --orange: #ea580c;          /* orange-600 */
+  --orange-soft: rgba(234, 88, 12, 0.10);
+  --orange-strong: #c2410c;
+  --accent-line: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ===== Theme tokens — dark ===== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --bg-elev: #111111;
+  --bg-soft: #161616;
+  --bg-hover: #1a1a1a;
+  --bg-sidebar: #0d0d0d;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-accent: rgba(34, 211, 238, 0.22);
+  --text: #fafafa;
+  --text-dim: rgba(255, 255, 255, 0.62);
+  --text-faint: rgba(255, 255, 255, 0.42);
+  --primary: #22d3ee;        /* cyan-400 — meilleur contraste sur fond sombre */
+  --primary-soft: rgba(34, 211, 238, 0.12);
+  --primary-strong: #67e8f9;
+  --primary-fg: #0a0a0a;
+  --gold: #eab308;
+  --gold-soft: rgba(234, 179, 8, 0.12);
+  --gold-strong: #facc15;
+  --ok: #4ade80;
+  --ok-soft: rgba(74, 222, 128, 0.10);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.10);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.10);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.10);
+  --purple: #a78bfa;
+  --purple-soft: rgba(167, 139, 250, 0.10);
+  --purple-strong: #c4b5fd;
+  --orange: #fb923c;
+  --orange-soft: rgba(251, 146, 60, 0.10);
+  --orange-strong: #fdba74;
+  --accent-line: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Suit la préférence système quand l'utilisateur n'a pas explicitement choisi. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --bg-elev: #111111;
+    --bg-soft: #161616;
+    --bg-hover: #1a1a1a;
+    --bg-sidebar: #0d0d0d;
+    --border: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --border-accent: rgba(34, 211, 238, 0.22);
+    --text: #fafafa;
+    --text-dim: rgba(255, 255, 255, 0.62);
+    --text-faint: rgba(255, 255, 255, 0.42);
+    --primary: #22d3ee;
+    --primary-soft: rgba(34, 211, 238, 0.12);
+    --primary-strong: #67e8f9;
+    --primary-fg: #0a0a0a;
+    --gold: #eab308;
+    --gold-soft: rgba(234, 179, 8, 0.12);
+    --gold-strong: #facc15;
+    --ok: #4ade80;
+    --ok-soft: rgba(74, 222, 128, 0.10);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.10);
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.10);
+    --info: #38bdf8;
+    --info-soft: rgba(56, 189, 248, 0.10);
+    --purple: #a78bfa;
+    --purple-soft: rgba(167, 139, 250, 0.10);
+    --purple-strong: #c4b5fd;
+    --orange: #fb923c;
+    --orange-soft: rgba(251, 146, 60, 0.10);
+    --orange-strong: #fdba74;
+    --accent-line: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body { transition: background-color 0.2s, color 0.2s; }
+
+button { font-family: inherit; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+/* Scrollbar (style discret, identique en light/dark via variables) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
