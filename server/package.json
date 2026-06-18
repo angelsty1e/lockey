@@ -17,7 +17,7 @@
     "fix:audit-chain": "tsx --env-file=.env scripts/fix-audit-chain.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "^7.8.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
