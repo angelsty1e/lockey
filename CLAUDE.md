@@ -38,3 +38,10 @@
 - .github/dependabot.yml
 - .github/workflows/codeql.yml
 - .github/workflows/security-owasp-2025.yml
+
+### 2026-06-18 16:38
+- client/src/auth/AuthContext.tsx
+- client/src/crypto/passkey.ts
+- client/src/crypto/zk.ts
+- client/src/vault/crypto.ts
+- client/src/vault/totp.ts

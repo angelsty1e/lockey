@@ -31,6 +31,14 @@ const subtle = crypto.subtle;
 const utf8 = new TextEncoder();
 const utf8d = new TextDecoder();
 
+/**
+ * Octets adossés à un vrai `ArrayBuffer`. Depuis TypeScript 5.7, `Uint8Array`
+ * est générique et son défaut (`ArrayBufferLike`) inclut `SharedArrayBuffer`,
+ * ce qui n'est pas assignable à `BufferSource` attendu par la Web Crypto API.
+ * Toutes nos vues sont adossées à un `ArrayBuffer` : on l'exprime explicitement.
+ */
+export type Bytes = Uint8Array<ArrayBuffer>;
+
 // ---------------------------------------------------------------------------
 // Encodage
 // ---------------------------------------------------------------------------
@@ -41,14 +49,14 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-export function fromBase64(b64: string): Uint8Array {
+export function fromBase64(b64: string): Bytes {
   const s = atob(b64);
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
   return out;
 }
 
-function randomBytes(n: number): Uint8Array {
+function randomBytes(n: number): Bytes {
   return crypto.getRandomValues(new Uint8Array(n));
 }
 
@@ -61,7 +69,7 @@ function normUser(username: string): string {
 // Primitives de dérivation
 // ---------------------------------------------------------------------------
 
-async function pbkdf2(password: Uint8Array, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+async function pbkdf2(password: Bytes, salt: Bytes, iterations: number): Promise<Bytes> {
   const baseKey = await subtle.importKey('raw', password, 'PBKDF2', false, ['deriveBits']);
   const bits = await subtle.deriveBits(
     { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
@@ -72,17 +80,17 @@ async function pbkdf2(password: Uint8Array, salt: Uint8Array, iterations: number
 }
 
 /** Clé maître brute — dérivation coûteuse à partir du mot de passe maître. */
-async function deriveMasterKeyBits(masterPassword: string, username: string): Promise<Uint8Array> {
+async function deriveMasterKeyBits(masterPassword: string, username: string): Promise<Bytes> {
   return pbkdf2(utf8.encode(masterPassword), utf8.encode(normUser(username)), KDF_ITERATIONS);
 }
 
 /** Hash d'authentification (base64) — la seule valeur transmise au serveur. */
-async function deriveAuthHash(masterKeyBits: Uint8Array, masterPassword: string): Promise<string> {
+async function deriveAuthHash(masterKeyBits: Bytes, masterPassword: string): Promise<string> {
   return toBase64(await pbkdf2(masterKeyBits, utf8.encode(masterPassword), 1));
 }
 
 /** Clé AES-GCM d'emballage, dérivée des bits maîtres via HKDF. */
-async function deriveEncKey(masterKeyBits: Uint8Array, info: string): Promise<CryptoKey> {
+async function deriveEncKey(masterKeyBits: Bytes, info: string): Promise<CryptoKey> {
   const hkdfKey = await subtle.importKey('raw', masterKeyBits, 'HKDF', false, ['deriveKey']);
   return subtle.deriveKey(
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8.encode(info) },
@@ -97,7 +105,7 @@ async function deriveEncKey(masterKeyBits: Uint8Array, info: string): Promise<Cr
 // AES-256-GCM — format de blob : "lk1:" + base64(iv(12) || ciphertext+tag)
 // ---------------------------------------------------------------------------
 
-async function aesEncrypt(key: CryptoKey, plaintext: Uint8Array): Promise<string> {
+async function aesEncrypt(key: CryptoKey, plaintext: Bytes): Promise<string> {
   const iv = randomBytes(12);
   const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext));
   const joined = new Uint8Array(iv.length + ct.length);
@@ -106,7 +114,7 @@ async function aesEncrypt(key: CryptoKey, plaintext: Uint8Array): Promise<string
   return `${BLOB_PREFIX}:${toBase64(joined)}`;
 }
 
-async function aesDecrypt(key: CryptoKey, blob: string): Promise<Uint8Array> {
+async function aesDecrypt(key: CryptoKey, blob: string): Promise<Bytes> {
   const sep = blob.indexOf(':');
   if (sep < 0 || blob.slice(0, sep) !== BLOB_PREFIX) {
     throw new Error('format de blob chiffré invalide');
@@ -124,7 +132,7 @@ async function aesDecrypt(key: CryptoKey, blob: string): Promise<Uint8Array> {
 
 /** Importe 32 octets bruts en clé AES-GCM. `extractable` pour pouvoir la
  *  ré-emballer lors d'un changement de mot de passe maître. */
-async function importVaultKey(raw: Uint8Array): Promise<CryptoKey> {
+async function importVaultKey(raw: Bytes): Promise<CryptoKey> {
   return subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 
@@ -149,7 +157,7 @@ export function normalizeRecoveryCode(code: string): string {
   return code.toUpperCase().replace(/[^A-Z2-9]/g, '');
 }
 
-async function deriveRecoveryKeyBits(recoveryCode: string, username: string): Promise<Uint8Array> {
+async function deriveRecoveryKeyBits(recoveryCode: string, username: string): Promise<Bytes> {
   const norm = normalizeRecoveryCode(recoveryCode);
   return pbkdf2(utf8.encode(norm), utf8.encode('lockey:recovery:' + normUser(username)), KDF_ITERATIONS);
 }
@@ -213,7 +221,7 @@ export async function buildAccountKeys(username: string, masterPassword: string)
 export async function deriveLogin(
   username: string,
   masterPassword: string,
-): Promise<{ authHash: string; masterKeyBits: Uint8Array }> {
+): Promise<{ authHash: string; masterKeyBits: Bytes }> {
   const masterKeyBits = await deriveMasterKeyBits(masterPassword, username);
   const authHash = await deriveAuthHash(masterKeyBits, masterPassword);
   return { authHash, masterKeyBits };
@@ -222,7 +230,7 @@ export async function deriveLogin(
 /** Déballe la clé de chiffrement avec les bits maîtres (issus de deriveLogin). */
 export async function unlockVaultKey(
   protectedVaultKey: string,
-  masterKeyBits: Uint8Array,
+  masterKeyBits: Bytes,
 ): Promise<CryptoKey> {
   const encKey = await deriveEncKey(masterKeyBits, 'lockey:enc-key:v1');
   const raw = await aesDecrypt(encKey, protectedVaultKey);
@@ -262,7 +270,7 @@ export async function unlockWithRecovery(
  * sortie de l'extension PRF d'une passkey (Phase 5).
  */
 export async function wrapVaultKeyWithRaw(
-  rawWrappingKey: Uint8Array,
+  rawWrappingKey: Bytes,
   vaultKey: CryptoKey,
 ): Promise<string> {
   const wrapKey = await subtle.importKey('raw', rawWrappingKey, { name: 'AES-GCM' }, false, ['encrypt']);
@@ -272,7 +280,7 @@ export async function wrapVaultKeyWithRaw(
 
 /** Déballe la clé de chiffrement emballée par une clé brute (cf. `wrapVaultKeyWithRaw`). */
 export async function unwrapVaultKeyWithRaw(
-  rawWrappingKey: Uint8Array,
+  rawWrappingKey: Bytes,
   blob: string,
 ): Promise<CryptoKey> {
   const wrapKey = await subtle.importKey('raw', rawWrappingKey, { name: 'AES-GCM' }, false, ['decrypt']);

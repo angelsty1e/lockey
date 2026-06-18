@@ -9,6 +9,7 @@
  * emballé — il ne peut jamais reconstituer le secret PRF.
  */
 import { wrapVaultKeyWithRaw, unwrapVaultKeyWithRaw, toBase64, fromBase64 } from './zk';
+import type { Bytes } from './zk';
 
 export interface PasskeyEnrollment {
   /** Identifiant de credential WebAuthn (base64url). */
@@ -25,7 +26,7 @@ function toB64Url(bytes: Uint8Array): string {
   return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function fromB64Url(s: string): Uint8Array {
+function fromB64Url(s: string): Bytes {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
   return fromBase64(s.replace(/-/g, '+').replace(/_/g, '/') + pad);
 }
@@ -44,12 +45,12 @@ interface PrfResults {
   prf?: { results?: { first?: ArrayBuffer } };
 }
 
-function randomBytes(n: number): Uint8Array {
+function randomBytes(n: number): Bytes {
   return crypto.getRandomValues(new Uint8Array(n));
 }
 
 /** Évalue l'extension PRF d'une passkey existante → secret de 32 octets. */
-async function evaluatePrf(credentialId: BufferSource, prfSalt: BufferSource): Promise<Uint8Array> {
+async function evaluatePrf(credentialId: BufferSource, prfSalt: BufferSource): Promise<Bytes> {
   const assertion = (await navigator.credentials.get({
     publicKey: {
       challenge: randomBytes(32),

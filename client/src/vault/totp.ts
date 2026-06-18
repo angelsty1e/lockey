@@ -5,12 +5,14 @@
  * 6 chiffres, période de 30 s.
  */
 
+import type { Bytes } from '../crypto/zk';
+
 const PERIOD = 30;
 const DIGITS = 6;
 const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 /** Décode une chaîne base32 en octets. Ignore espaces et padding. */
-function base32Decode(input: string): Uint8Array {
+function base32Decode(input: string): Bytes {
   const clean = input.toUpperCase().replace(/[^A-Z2-7]/g, '');
   const out: number[] = [];
   let bits = 0;

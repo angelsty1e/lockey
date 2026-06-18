@@ -13,8 +13,8 @@ export async function encryptContent(vaultKey: CryptoKey, content: ItemContent):
 
 export async function decryptContent(vaultKey: CryptoKey, blob: string): Promise<ItemContent> {
   const parsed = JSON.parse(await decryptString(vaultKey, blob)) as ItemContent;
-  // Normalise les champs potentiellement absents.
-  return { name: '', notes: '', ...parsed };
+  // Normalise les champs potentiellement absents (données héritées).
+  return { ...parsed, name: parsed.name ?? '', notes: parsed.notes ?? '' };
 }
 
 /** Déchiffre un enregistrement serveur en élément exploitable. */

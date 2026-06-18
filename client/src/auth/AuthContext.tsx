@@ -19,6 +19,7 @@ import {
   unlockWithPassword,
   unlockWithRecovery,
 } from '../crypto/zk';
+import type { Bytes } from '../crypto/zk';
 import {
   enrollPasskey as createPasskeyEnrollment,
   unlockWithPasskey,
@@ -84,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   // Bits maîtres retenus entre l'étape mdp et la vérif 2FA, pour pouvoir
   // déballer la clé de chiffrement une fois le 2FA validé.
-  const pendingKeyBits = useRef<Uint8Array | null>(null);
+  const pendingKeyBits = useRef<Bytes | null>(null);
   // Code de récupération à présenter après une initialisation de Lockey. Les
   // clés correspondantes restent en attente jusqu'à acquittement (sinon l'app
   // s'afficherait avant que l'utilisateur ait noté son code).
