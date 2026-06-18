@@ -183,17 +183,18 @@ jobs:
   # l'introduction d'une dépendance vulnérable ou d'une licence interdite.
   dependency-review:
     name: Dependency Review (A03 — PR uniquement)
-    if: github.event_name == 'pull_request'
+    # Requiert le Dependency graph (gratuit sur dépôt public, GitHub Advanced
+    # Security sur dépôt privé). Désactivé tant qu'il n'est pas actif, sinon
+    # l'action publie une annotation d'erreur. Réactiver en remettant la
+    # condition : github.event_name == 'pull_request'. A03 reste couvert
+    # entre-temps par npm audit (>= high) + dependabot.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Requiert le Dependency graph (gratuit sur dépôt public, GitHub Advanced
-      # Security sur dépôt privé). Non bloquant : si le graph est absent, on ne
-      # casse pas la CI — A03 reste couvert par npm audit + dependabot.
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
-        continue-on-error: true
 
   # --------------------------------------------------------------------------
   # A02 — Security Misconfiguration : Trivy en mode config (IaC/Dockerfile) +
