@@ -86,6 +86,22 @@ const loginLimiter = rateLimit({
   message: { error: 'too_many_requests', message: 'Trop de tentatives, réessayez dans 15 minutes.' },
 });
 
+// F5 — plafond GLOBAL par username (toutes IP confondues), en complément du
+// loginLimiter (clé IP+username). Sans lui, un attaquant multi-IP teste 5
+// mots de passe PAR compte sans jamais déclencher la limite (password spraying).
+// 30 tentatives/heure et par compte : large pour un humain, fatal pour un spray.
+const loginSprayLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const body = req.body as { username?: unknown } | undefined;
+    return typeof body?.username === 'string' ? `u:${body.username.toLowerCase().slice(0, 64)}` : 'u:anon';
+  },
+  message: { error: 'too_many_requests', message: 'Trop de tentatives pour ce compte, réessaie plus tard.' },
+});
+
 const apiLimiter = rateLimit({
   windowMs: 60_000,
   limit: 200,
@@ -100,7 +116,7 @@ app.use('/api/', requireCsrfHeader);
 app.use('/api/setup', setupRouter);
 // loginLimiter couvre POST /api/auth/login ET POST /api/auth/login/mfa
 // (le préfixe matche les deux, l'étape 2 hérite donc du throttle anti-bruteforce).
-app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/login', loginSprayLimiter, loginLimiter);
 app.use('/api/auth', authRouter);
 // Routes plus spécifiques en premier : /api/account/mfa avant /api/account.
 app.use('/api/account/mfa', mfaAccountRouter);

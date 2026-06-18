@@ -10,8 +10,11 @@ export const idSchema = z
 
 // ---------- Authentification zéro-connaissance ----------
 
-// `authHash` : base64 d'un PBKDF2-SHA256 (32 octets) calculé côté navigateur.
-const authHashField = z.string().min(40).max(128);
+// `authHash` : base64 d'un PBKDF2-SHA256 (32 octets) calculé côté navigateur (~44 car.).
+// S3 — plafonné à 64 caractères : bcrypt ignore silencieusement tout octet au-delà
+// du 72e (CWE-916). 64 caractères base64 = 48 octets, on reste sous la limite et
+// l'invariant « tout le authHash participe au hash » est garanti.
+const authHashField = z.string().min(40).max(64);
 // Blob chiffré "lk1:<base64>" — clé de chiffrement Lockey emballée, ~84 caractères.
 const cryptoBlob = z.string().min(8).max(2048);
 const usernameField = z.string().min(1).max(64);

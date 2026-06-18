@@ -5,7 +5,7 @@ import { requireAuth, requireSession, requireAdmin } from '../auth.js';
 import { badRequest } from '../errors.js';
 import { logAudit } from '../audit.js';
 import { asyncHandler } from '../asyncHandler.js';
-import { encryptSmtpPass } from '../utils/smtpCrypto.js';
+import { encryptSmtpPass, smtpEncryptionConfigured } from '../utils/smtpCrypto.js';
 import { getEmailConfig, SINGLETON_ID, verifyAndSendTest } from '../services/email.js';
 
 export const settingsRouter = Router();
@@ -53,6 +53,14 @@ settingsRouter.put(
     }
     // Don't overwrite the encrypted password if the field is empty
     if (parsed.data.smtpPass !== undefined && parsed.data.smtpPass !== '') {
+      // F3 : refuser proprement (400) plutôt que de laisser remonter une 500
+      // depuis encryptSmtpPass si la clé dédiée n'est pas configurée.
+      if (!smtpEncryptionConfigured()) {
+        throw badRequest(
+          'SMTP_ENCRYPTION_KEY non configuré : impossible de stocker un mot de passe SMTP en clair chiffrable. ' +
+            'Générez la clé (`openssl rand -base64 32`), posez-la dans l\'environnement et redémarrez.',
+        );
+      }
       data.smtpPass = encryptSmtpPass(parsed.data.smtpPass);
     }
 

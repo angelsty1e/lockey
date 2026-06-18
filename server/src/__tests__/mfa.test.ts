@@ -5,6 +5,7 @@ import {
   generateTotpSecret,
   buildOtpauthUrl,
   verifyTotp,
+  consumeTotp,
   generateBackupCodes,
   normalizeBackupCode,
 } from '../utils/mfa.js';
@@ -75,6 +76,32 @@ describe('verifyTotp', () => {
     const correct = authenticator.generate(secret);
     if (correct === wrong) return; // skip cas extrêmement improbable
     expect(verifyTotp(secret, wrong)).toBe(false);
+  });
+});
+
+describe('consumeTotp — anti-rejeu (S4)', () => {
+  const secret = 'JBSWY3DPEHPK3PXP';
+
+  it('accepte un code valide la première fois', () => {
+    const code = authenticator.generate(secret);
+    expect(consumeTotp('user-replay-1', secret, code)).toBe(true);
+  });
+
+  it('rejette le même code rejoué pour le même utilisateur', () => {
+    const code = authenticator.generate(secret);
+    expect(consumeTotp('user-replay-2', secret, code)).toBe(true);
+    // Rejeu immédiat du même code (même step) → refusé.
+    expect(consumeTotp('user-replay-2', secret, code)).toBe(false);
+  });
+
+  it('le même code reste valable pour un AUTRE utilisateur (compteur par user)', () => {
+    const code = authenticator.generate(secret);
+    expect(consumeTotp('user-replay-3a', secret, code)).toBe(true);
+    expect(consumeTotp('user-replay-3b', secret, code)).toBe(true);
+  });
+
+  it('rejette un code invalide sans consommer de step', () => {
+    expect(consumeTotp('user-replay-4', secret, '000000')).toBe(false);
   });
 });
 

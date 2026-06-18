@@ -2,7 +2,46 @@ import crypto from 'node:crypto';
 import type { Request } from 'express';
 import type { AuditAction, Prisma } from '@prisma/client';
 import { prisma } from './db.js';
+import { env } from './env.js';
 import { logger } from './logger.js';
+
+/**
+ * Clé HMAC du chaînage d'audit — détenue HORS de la base (F1).
+ *
+ * Avant : `hash = SHA256(prevHash || payload)`, non clavé. Toutes les entrées
+ * étant en clair en DB, quiconque obtenait un accès *write* Postgres pouvait
+ * altérer une ligne puis recalculer toute la chaîne avec l'algorithme public
+ * (le « tamper-evident » revendiqué était illusoire dans son propre modèle de
+ * menace).
+ *
+ * Maintenant : `hash = HMAC-SHA256(key, prevHash || payload)` où `key` n'est
+ * jamais en base. Sans la clé, recalculer la chaîne est infaisable.
+ *   - `AUDIT_HMAC_KEY` si fournie (recommandé : découple la rotation de session
+ *     de l'intégrité d'audit),
+ *   - sinon dérivée de `JWT_SECRET` par HKDF (domain-separated) — toujours hors
+ *     base, mais une rotation de JWT_SECRET invalide alors la vérification
+ *     historique (à re-sceller via `fix:audit-chain`).
+ */
+let cachedAuditKey: Buffer | null = null;
+export function auditChainKey(): Buffer {
+  if (cachedAuditKey) return cachedAuditKey;
+  cachedAuditKey = env.AUDIT_HMAC_KEY
+    ? Buffer.from(env.AUDIT_HMAC_KEY, 'utf8')
+    : Buffer.from(
+        crypto.hkdfSync(
+          'sha256',
+          env.JWT_SECRET,
+          Buffer.from('lockey:audit-chain'),
+          Buffer.from('hmac-key:v1'),
+          32,
+        ),
+      );
+  return cachedAuditKey;
+}
+
+function chainHash(canonical: string): string {
+  return crypto.createHmac('sha256', auditChainKey()).update(canonical).digest('hex');
+}
 
 interface AuditInput {
   action: AuditAction;
@@ -15,14 +54,18 @@ interface AuditInput {
 }
 
 /**
- * M6 — chaînage par hash du journal d'audit.
+ * M6 — chaînage par HMAC du journal d'audit.
  *
- * Chaque ligne calcule `hash = SHA256(prevHash || canonical(payload))` où
- * `prevHash` est le hash du dernier log écrit (ordre par id décroissant ;
- * cuid est k-sortable donc cohérent avec l'ordre temporel).
+ * Chaque ligne calcule `hash = HMAC-SHA256(key, prevHash || canonical(payload))`
+ * où `prevHash` est le hash du dernier log écrit (ordre par id décroissant ;
+ * cuid est k-sortable donc cohérent avec l'ordre temporel) et `key` est détenue
+ * hors base (cf. `auditChainKey`).
  *
- * Si une ligne est modifiée ou supprimée en DB, la chaîne casse à partir
- * de cette ligne et c'est détectable par `npm run verify:audit-chain`.
+ * Si une ligne est modifiée ou supprimée en DB, la chaîne casse à partir de
+ * cette ligne et c'est détectable par `npm run verify:audit-chain`. Comme la
+ * clé HMAC n'est pas en base, un attaquant ayant un accès write Postgres ne
+ * peut PAS recalculer une chaîne cohérente (contrairement à l'ancien SHA-256
+ * non clavé).
  *
  * Limite connue : sur écriture concurrente (rare en pratique), deux logs
  * peuvent lire le même prevHash et créer un fork. La vérification le détecte
@@ -96,23 +139,20 @@ export async function logAudit(input: AuditInput): Promise<void> {
     const serial = input.serial ?? null;
     const success = input.success ?? true;
 
-    const hash = crypto
-      .createHash('sha256')
-      .update(
-        canonicalPayload({
-          action: input.action,
-          userId,
-          username,
-          ip,
-          userAgent,
-          serial,
-          details: input.details,
-          success,
-          createdAt,
-          prevHash,
-        }),
-      )
-      .digest('hex');
+    const hash = chainHash(
+      canonicalPayload({
+        action: input.action,
+        userId,
+        username,
+        ip,
+        userAgent,
+        serial,
+        details: input.details,
+        success,
+        createdAt,
+        prevHash,
+      }),
+    );
 
     await prisma.auditLog.create({
       data: {
@@ -166,5 +206,5 @@ export function recomputeAuditHash(row: {
   createdAt: Date;
   prevHash: string | null;
 }): string {
-  return crypto.createHash('sha256').update(canonicalPayload(row)).digest('hex');
+  return chainHash(canonicalPayload(row));
 }

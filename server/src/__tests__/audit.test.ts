@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import type { AuditAction, Prisma } from '@prisma/client';
-import { recomputeAuditHash } from '../audit.js';
+import { recomputeAuditHash, auditChainKey } from '../audit.js';
 
 /**
  * La chaîne de hash du journal d'audit est la première ligne de défense
@@ -36,16 +36,17 @@ describe('recomputeAuditHash — déterminisme', () => {
     expect(a).toBe(b);
   });
 
-  it('produit un hash sha256 (64 hex)', () => {
+  it('produit un hmac-sha256 (64 hex)', () => {
     expect(recomputeAuditHash(baseRow)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('hash explicite stable (régression : changer la canonicalisation casserait la chaîne historique)', () => {
-    // Si ce test casse, c'est que stableStringify a changé. Ne PAS le « réparer »
-    // sans avoir migré la base via fix:audit-chain — sinon tous les logs anciens
-    // deviennent suspects à la prochaine vérification.
+  it('hash explicite stable (régression : changer la canonicalisation ou la clé casserait la chaîne)', () => {
+    // Si ce test casse, c'est que stableStringify ou la dérivation de clé HMAC a
+    // changé. Ne PAS le « réparer » sans avoir migré la base via fix:audit-chain
+    // — sinon tous les logs anciens deviennent suspects à la prochaine vérif.
+    // F1 : le sceau est désormais un HMAC clavé (clé hors base), plus un SHA-256 nu.
     const expected = crypto
-      .createHash('sha256')
+      .createHmac('sha256', auditChainKey())
       .update(
         '{"action":"LOGIN","createdAt":"2026-01-15T12:34:56.789Z","details":null,"ip":"127.0.0.1","prevHash":null,"serial":null,"success":true,"userAgent":"Mozilla/5.0","userId":"clx0000000000000000000000","username":"alice"}',
       )

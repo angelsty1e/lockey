@@ -40,12 +40,24 @@ vaultRouter.get(
   }),
 );
 
+// S8 — plafond d'éléments par utilisateur. La lecture (`GET /items`) renvoie
+// tout le coffre d'un coup ; sans borne, un compte pourrait gonfler sa propre
+// collection (blobs jusqu'à 200 Ko) au point de saturer la mémoire serveur à la
+// sérialisation. On borne à la SOURCE (création) pour ne pas masquer d'items à
+// la lecture (un cap sur le GET ferait disparaître des entrées de l'UI).
+const MAX_ITEMS_PER_USER = 10_000;
+
 /** POST /items — crée un élément (blob chiffré fourni par le client). */
 vaultRouter.post(
   '/items',
   asyncHandler(async (req, res) => {
     const parsed = vaultItemCreateSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('payload invalide', parsed.error.flatten());
+
+    const count = await prisma.vaultItem.count({ where: { ownerId: req.user!.id } });
+    if (count >= MAX_ITEMS_PER_USER) {
+      throw badRequest(`limite de ${MAX_ITEMS_PER_USER} éléments atteinte pour ce coffre`);
+    }
 
     const created = await prisma.vaultItem.create({
       data: {

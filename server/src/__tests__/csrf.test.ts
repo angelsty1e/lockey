@@ -72,22 +72,10 @@ describe('requireCsrfHeader — méthodes mutantes (POST/PUT/DELETE/PATCH)', () 
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  it('POST avec Authorization: Bearer <token> → next() (token API exempté)', () => {
-    const next = vi.fn();
-    const res = buildRes();
-    requireCsrfHeader(
-      buildReq('POST', { authorization: 'Bearer tok_aaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }),
-      res,
-      next as NextFunction,
-    );
-    expect(next).toHaveBeenCalledOnce();
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
-  it('POST avec Authorization quelconque → next() (présence du header suffit)', () => {
-    // Note : la validité du token est vérifiée plus loin par requireAuth.
-    // CSRF se contente de constater qu'il n'y a pas de surface CSRF (header
-    // Authorization ne peut être posé par un formulaire HTML cross-site).
+  it('POST avec Authorization mais SANS X-Lockey-Client → 403 (S1 : exemption retirée)', () => {
+    // Régression S1 : l'ancienne exemption `Authorization` exemptait une surface
+    // Bearer inexistante. Désormais, seul `X-Lockey-Client: web` exempte — un
+    // header Authorization seul ne suffit plus.
     const next = vi.fn();
     const res = buildRes();
     requireCsrfHeader(
@@ -95,7 +83,20 @@ describe('requireCsrfHeader — méthodes mutantes (POST/PUT/DELETE/PATCH)', () 
       res,
       next as NextFunction,
     );
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('POST avec Authorization + X-Lockey-Client: web → next() (c\'est le header CSRF qui compte)', () => {
+    const next = vi.fn();
+    const res = buildRes();
+    requireCsrfHeader(
+      buildReq('POST', { authorization: 'Bearer x', 'x-lockey-client': 'web' }),
+      res,
+      next as NextFunction,
+    );
     expect(next).toHaveBeenCalledOnce();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

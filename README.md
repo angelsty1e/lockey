@@ -28,7 +28,8 @@ jamais : même un accès complet à la base de données ne révèle aucun secret
 - 👆 **Déverrouillage par passkey** — WebAuthn + extension PRF (empreinte,
   Face ID, clé de sécurité), en complément du mot de passe maître.
 - 🛡 **2FA du compte** — TOTP + codes de secours pour la connexion.
-- 📋 **Journal d'audit** — chaîné par hash, infalsifiable.
+- 📋 **Journal d'audit** — chaîné par HMAC clavé (clé hors base) : inviolable
+  sans cette clé, même avec un accès complet à la base.
 - 👥 **Multi-utilisateurs** — rôles administrateur / utilisateur.
 
 ---
@@ -132,17 +133,19 @@ hors ligne immédiatement.
 | Variable | Requis | Description |
 |---|---|---|
 | `DATABASE_URL` | ✅ | URL de connexion PostgreSQL |
-| `JWT_SECRET` | ✅ | Secret de signature des sessions (≥ 32 caractères) |
-| `VAULT_MASTER_KEY` | ✅\* | Chiffre les secrets 2FA au repos (≥ 32 caractères). \*Obligatoire dès qu'un utilisateur active le 2FA. |
+| `JWT_SECRET` | ✅ | Secret de signature des sessions. ≥ 32 caractères **aléatoires** (entropie validée au boot). |
+| `VAULT_MASTER_KEY` | ✅\* | Chiffre les secrets 2FA au repos. \*Obligatoire dès qu'un utilisateur active le 2FA (le serveur refuse de booter sinon). |
+| `AUDIT_HMAC_KEY` | — | Clé HMAC du journal d'audit (intégrité). À défaut, dérivée de `JWT_SECRET`. Une clé dédiée découple la rotation de session de l'audit. |
+| `SMTP_ENCRYPTION_KEY` | ✅\*\* | Chiffre le mot de passe SMTP au repos. \*\*Obligatoire pour enregistrer un mot de passe SMTP (plus de fallback `JWT_SECRET`). |
 | `JWT_EXPIRES_IN` | — | Durée de session (défaut : `12h`) |
-| `SMTP_ENCRYPTION_KEY` | — | Chiffre le mot de passe SMTP au repos (≥ 32 caractères) |
 | `HOST` / `PORT` | — | Interface d'écoute (défaut : `127.0.0.1:3000`) |
 | `CORS_ORIGIN` | — | Origines autorisées (si le front est servi séparément) |
 | `TRUST_PROXY` | — | Configuration proxy Express (défaut : `loopback`) |
 | `NODE_ENV` | — | `production` (défaut) / `development` / `test` |
 | `LOG_LEVEL` | — | `info` (défaut), `debug`, etc. |
 
-Générer un secret : `openssl rand -base64 32`.
+Générer chaque secret : `openssl rand -base64 48`. Le serveur **refuse de
+démarrer** si une clé contient `CHANGE_ME` ou a une entropie triviale.
 
 ---
 
@@ -168,8 +171,9 @@ server/
 
 ## Modèle de sécurité
 
-- Le serveur **ne peut pas** déchiffrer les données : il ne stocke que des
-  hashes (`bcrypt`) et des blobs chiffrés.
+- Le serveur **au repos ne peut pas** déchiffrer les données : il ne stocke que
+  des hashes (`bcrypt`) et des blobs chiffrés. Un vol de la base ne révèle aucun
+  secret.
 - Le mot de passe maître et le code de récupération ne transitent jamais en
   clair.
 - La clé de chiffrement vit uniquement en mémoire du navigateur ; elle est perdue à
@@ -178,8 +182,20 @@ server/
 - Un administrateur **ne peut pas** réinitialiser le mot de passe d'un autre
   utilisateur (ce serait incompatible avec le chiffrement zéro-connaissance) —
   la récupération passe par le code de récupération de l'utilisateur.
-- Le journal d'audit est chaîné par hash ; vérification :
-  `npm run verify:audit-chain`.
+- Le journal d'audit est chaîné par **HMAC-SHA256 clavé** (clé hors base) :
+  un porteur d'accès à la base ne peut pas recalculer une chaîne cohérente
+  après altération. Vérification : `npm run verify:audit-chain`.
+
+### Limite à connaître — zéro-connaissance *servi par le web*
+
+Le zéro-connaissance protège la base **au repos**. Mais comme Lockey **sert
+lui-même** le JavaScript qui chiffre dans le navigateur, un serveur **compromis
+en exécution** (ou un administrateur malveillant) pourrait servir un code piégé
+qui capture le mot de passe maître à la saisie. C'est la limite intrinsèque de
+tout coffre zéro-connaissance livré via le web (Bitwarden/Proton « web vault »
+incluses), distincte d'une extension/app à code signé. Atténuations : HTTPS
+strict, CSP verrouillée (en place), et — pour les profils à risque élevé —
+préférer un déploiement de confiance que vous maîtrisez de bout en bout.
 
 ---
 

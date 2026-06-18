@@ -26,12 +26,17 @@ interface JwtPayload {
 }
 
 export function signJwt(payload: JwtPayload): string {
-  const opts: SignOptions = { expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'] };
+  const opts: SignOptions = {
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'],
+    algorithm: 'HS256',
+  };
   return jwt.sign(payload, env.JWT_SECRET, opts);
 }
 
 export function verifyJwt(token: string): JwtPayload {
-  return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+  // S6 — liste blanche d'algorithme explicite : empêche toute confusion
+  // d'algorithme (ex. acceptation d'un `alg` asymétrique introduit plus tard).
+  return jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload;
 }
 
 /**
@@ -47,11 +52,16 @@ interface MfaChallengePayload {
 }
 
 export function signMfaChallenge(payload: Omit<MfaChallengePayload, 'stage'>): string {
-  return jwt.sign({ ...payload, stage: 'mfa' as const }, env.JWT_SECRET, { expiresIn: '5m' });
+  return jwt.sign({ ...payload, stage: 'mfa' as const }, env.JWT_SECRET, {
+    expiresIn: '5m',
+    algorithm: 'HS256',
+  });
 }
 
 export function verifyMfaChallenge(token: string): MfaChallengePayload {
-  const decoded = jwt.verify(token, env.JWT_SECRET) as MfaChallengePayload;
+  const decoded = jwt.verify(token, env.JWT_SECRET, {
+    algorithms: ['HS256'],
+  }) as MfaChallengePayload;
   if (decoded.stage !== 'mfa') throw new Error('not an MFA challenge token');
   return decoded;
 }

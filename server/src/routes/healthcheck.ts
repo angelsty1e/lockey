@@ -4,7 +4,7 @@ import { requireAuth, requireSession, requireAdmin } from '../auth.js';
 import { asyncHandler } from '../asyncHandler.js';
 import { badRequest, notFound } from '../errors.js';
 import { logAudit } from '../audit.js';
-import { healthcheckConfigUpdateSchema } from '../validation.js';
+import { healthcheckConfigUpdateSchema, idSchema } from '../validation.js';
 import {
   HEALTHCHECK_KEYS,
   executeAndPersist,
@@ -166,7 +166,27 @@ healthcheckRouter.get(
 healthcheckRouter.get(
   '/history/:id',
   asyncHandler(async (req, res) => {
-    const run = await prisma.healthCheckRun.findUnique({ where: { id: req.params.id } });
+    // F6 — valider l'id (cohérence avec les autres routes) et restreindre les
+    // champs : `recipientEmail` est l'email de l'admin destinataire (PII) et
+    // n'a pas à fuiter vers un autre admin consultant l'historique.
+    const idParsed = idSchema.safeParse(req.params.id);
+    if (!idParsed.success) throw badRequest('id invalide');
+    const run = await prisma.healthCheckRun.findUnique({
+      where: { id: idParsed.data },
+      select: {
+        id: true,
+        startedAt: true,
+        finishedAt: true,
+        triggeredBy: true,
+        triggeredById: true,
+        ok: true,
+        okCount: true,
+        failCount: true,
+        results: true,
+        emailSent: true,
+        emailError: true,
+      },
+    });
     if (!run) throw notFound('run introuvable');
     res.json(run);
   }),

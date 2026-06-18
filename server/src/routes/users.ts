@@ -24,7 +24,13 @@ usersRouter.use(requireAuth, requireSession, requireAdmin);
 usersRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
-    const users = await prisma.user.findMany({ select, orderBy: { createdAt: 'desc' } });
+    // S8 — borne défensive : même réservée aux admins, la liste complète n'a pas
+    // à matérialiser un nombre illimité de lignes d'un coup.
+    const users = await prisma.user.findMany({
+      select,
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    });
     res.json(users);
   }),
 );
@@ -100,10 +106,20 @@ usersRouter.patch(
     if (shouldBumpTv) data.tokenVersion = { increment: 1 };
 
     const updated = await prisma.user.update({ where: { id }, data, select });
+    // S10 — tracer les changements sensibles avec leurs valeurs (from→to), pas
+    // seulement le nom du champ : une investigation doit pouvoir reconstituer
+    // qui a eu le rôle ADMIN, et quand, ainsi que les (dé)activations.
+    const changes: Record<string, { from: string | boolean; to: string | boolean }> = {};
+    if (parsed.data.role !== undefined && parsed.data.role !== target.role) {
+      changes.role = { from: target.role, to: parsed.data.role };
+    }
+    if (parsed.data.active !== undefined && parsed.data.active !== target.active) {
+      changes.active = { from: target.active, to: parsed.data.active };
+    }
     await logAudit({
       action: 'USER_UPDATED',
       req,
-      details: { targetUserId: id, fields: Object.keys(data) },
+      details: { targetUserId: id, fields: Object.keys(data), changes },
     });
     res.json(updated);
   }),

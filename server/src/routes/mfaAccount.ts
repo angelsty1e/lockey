@@ -86,7 +86,9 @@ mfaAccountRouter.post(
 
     await prisma.user.update({
       where: { id: userId },
-      data: { mfaPendingSecret: vaultEncrypt(secret) },
+      // F2 — secret lié à l'utilisateur (AAD=userId) : un déplacement de ce blob
+      // vers la ligne d'un autre compte échouera au déchiffrement.
+      data: { mfaPendingSecret: vaultEncrypt(secret, userId) },
     });
 
     await logAudit({ action: 'MFA_SETUP_INITIATED', req });
@@ -118,7 +120,7 @@ mfaAccountRouter.post(
     if (user.mfaEnabled) throw conflict('le 2FA est déjà activé');
     if (!user.mfaPendingSecret) throw badRequest('aucun setup en cours — recommence depuis le début');
 
-    const secret = vaultDecrypt(user.mfaPendingSecret);
+    const secret = vaultDecrypt(user.mfaPendingSecret, userId);
     if (!verifyTotp(secret, parsed.data.code)) {
       throw unauthorized('code invalide');
     }
@@ -130,7 +132,7 @@ mfaAccountRouter.post(
         where: { id: userId },
         data: {
           mfaEnabled: true,
-          mfaSecret: vaultEncrypt(secret),
+          mfaSecret: vaultEncrypt(secret, userId),
           mfaPendingSecret: null,
           mfaActivatedAt: new Date(),
           // Invalide les autres sessions web : elles devront reauth (avec MFA).
@@ -173,7 +175,7 @@ mfaAccountRouter.post(
     const pwOk = await comparePassword(parsed.data.authHash, user.passwordHash);
     if (!pwOk) throw unauthorized('mot de passe incorrect');
 
-    const secret = vaultDecrypt(user.mfaSecret);
+    const secret = vaultDecrypt(user.mfaSecret, userId);
     if (!verifyTotp(secret, parsed.data.code)) throw unauthorized('code invalide');
 
     await prisma.$transaction(async tx => {
@@ -217,7 +219,7 @@ mfaAccountRouter.post(
       throw forbidden('le 2FA n\'est pas activé');
     }
 
-    const secret = vaultDecrypt(user.mfaSecret);
+    const secret = vaultDecrypt(user.mfaSecret, userId);
     if (!verifyTotp(secret, parsed.data.code)) throw unauthorized('code invalide');
 
     const { plain, hashes } = await generateBackupCodes();
@@ -246,11 +248,15 @@ export async function consumeBackupCode(userId: string, rawCode: string): Promis
   });
   for (const c of candidates) {
     if (await bcrypt.compare(normalized, c.codeHash)) {
-      await prisma.mfaBackupCode.update({
-        where: { id: c.id },
+      // S5 — consommation atomique : `updateMany` conditionné sur `usedAt: null`
+      // garantit qu'une seule requête concurrente marque le code. Si deux
+      // requêtes présentent le même code en parallèle, l'une obtient count=1,
+      // l'autre count=0 (déjà consommé) → pas de double-usage (CWE-362).
+      const consumed = await prisma.mfaBackupCode.updateMany({
+        where: { id: c.id, usedAt: null },
         data: { usedAt: new Date() },
       });
-      return true;
+      return consumed.count === 1;
     }
   }
   return false;

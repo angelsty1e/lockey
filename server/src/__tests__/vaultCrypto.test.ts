@@ -119,6 +119,33 @@ describe('vaultCrypto — lecture v1 legacy', () => {
   });
 });
 
+describe('vaultCrypto — AAD contextuel (v3, F2)', () => {
+  it('round-trip avec le même AAD', () => {
+    const blob = vaultEncrypt('secret-2fa', 'user-123');
+    expect(blob.startsWith('vault:v3:')).toBe(true);
+    expect(vaultDecrypt(blob, 'user-123')).toBe('secret-2fa');
+  });
+
+  it('échoue si l\'AAD diffère (substitution entre utilisateurs)', () => {
+    const blob = vaultEncrypt('secret-2fa', 'user-A');
+    // Le blob de A déplacé vers la ligne de B (déchiffré avec userId=B) → throw.
+    expect(() => vaultDecrypt(blob, 'user-B')).toThrow();
+  });
+
+  it('échoue si l\'AAD est absent au déchiffrement d\'un v3', () => {
+    const blob = vaultEncrypt('secret-2fa', 'user-123');
+    expect(() => vaultDecrypt(blob)).toThrow(/AAD/);
+  });
+
+  it('sans AAD, le format reste v2 (rétro-compatible)', () => {
+    const blob = vaultEncrypt('x');
+    expect(blob.startsWith('vault:v2:')).toBe(true);
+    expect(vaultDecrypt(blob)).toBe('x');
+    // Un v2 se déchiffre même si on passe un AAD par erreur (ignoré).
+    expect(vaultDecrypt(blob, 'ignored')).toBe('x');
+  });
+});
+
 describe('vaultBlobVersion', () => {
   it('extrait la version depuis un blob valide', () => {
     expect(vaultBlobVersion(vaultEncrypt('x'))).toBe('v2');

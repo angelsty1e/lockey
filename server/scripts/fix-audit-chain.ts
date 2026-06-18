@@ -29,6 +29,22 @@ import { recomputeAuditHash } from '../src/audit.js';
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes('--apply');
 
+// F1 — ce script RÉÉCRIT la chaîne d'audit à partir des données actuelles :
+// c'est un outil de migration légitime (re-scellement après un changement de
+// canonicalisation/clé), mais aussi, entre de mauvaises mains, un oracle de
+// réécriture. En production, on exige un opt-in explicite pour éviter qu'il
+// serve à blanchir une altération. Le re-scellement reste impossible sans la
+// clé HMAC (auditChainKey), mais on garde ce garde-fou de défense en profondeur.
+if (APPLY && process.env.NODE_ENV === 'production' && process.env.ALLOW_AUDIT_REWRITE !== '1') {
+  console.error(
+    'Refus : réécriture de la chaîne d\'audit en production.\n' +
+      'Ce script ré-scelle TOUTES les lignes — toute altération antérieure devient\n' +
+      'indétectable. Si c\'est une migration légitime, relancez avec ALLOW_AUDIT_REWRITE=1\n' +
+      'et tracez l\'opération hors bande.',
+  );
+  process.exit(1);
+}
+
 async function main() {
   const total = await prisma.auditLog.count();
   console.log(`AuditLog : ${total} entrées au total.`);

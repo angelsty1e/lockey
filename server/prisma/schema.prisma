@@ -118,9 +118,15 @@ model AuditLog {
   success    Boolean     @default(true)
   createdAt  DateTime    @default(now())
 
-  // M6 — chaînage par hash : chaque log embarque le hash du précédent.
-  // Si une ligne est modifiée ou supprimée a posteriori, la chaîne casse et
-  // se vérifie via `npm run verify:audit-chain`.
+  // M6 — chaînage par HMAC-SHA256 clavé (clé hors base, cf. auditChainKey) :
+  // chaque log embarque le hash du précédent. Si une ligne est modifiée ou
+  // supprimée a posteriori, la chaîne casse et se vérifie via
+  // `npm run verify:audit-chain`. La clé n'étant pas en base, un porteur d'accès
+  // write Postgres ne peut pas recalculer une chaîne cohérente.
+  // NB : `userId` participe au sceau et la FK est `onDelete: SetNull` ; supprimer
+  // un utilisateur met ses lignes d'audit à userId=NULL → la vérification
+  // signalera ces lignes (attendu après une suppression RGPD), à distinguer
+  // d'une altération malveillante.
   prevHash   String?
   hash       String?
 

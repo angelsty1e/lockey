@@ -14,7 +14,7 @@ import { badRequest, unauthorized } from '../errors.js';
 import { logAudit } from '../audit.js';
 import { asyncHandler } from '../asyncHandler.js';
 import { vaultDecrypt } from '../utils/vaultCrypto.js';
-import { verifyTotp } from '../utils/mfa.js';
+import { consumeTotp } from '../utils/mfa.js';
 import { consumeBackupCode } from './mfaAccount.js';
 
 export const authRouter = Router();
@@ -29,13 +29,34 @@ const mfaVerifyLimiter = rateLimit({
   message: { error: 'too_many_requests', message: 'Trop de tentatives — réessaie dans une minute.' },
 });
 
-// Limite le bruteforce du code de récupération.
+// Limite le bruteforce du code de récupération, par couple IP+username (comme
+// le login) : empêche qu'un attaquant mono-IP épuise un compte précis.
 const recoverLimiter = rateLimit({
   windowMs: 15 * 60_000,
   limit: 5,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  keyGenerator: req => {
+    const body = req.body as { username?: unknown } | undefined;
+    const username = typeof body?.username === 'string' ? body.username.toLowerCase().slice(0, 64) : '';
+    return `${req.ip ?? 'anon'}|${username}`;
+  },
   message: { error: 'too_many_requests', message: 'Trop de tentatives, réessaie dans 15 minutes.' },
+});
+
+// F5 — plafond GLOBAL par username (toutes IP confondues) : ferme le
+// password/recovery-spraying multi-IP que la clé IP+username laisse passer
+// (chaque IP a son propre compteur). 20 tentatives/heure et par compte.
+const recoverSprayLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const body = req.body as { username?: unknown } | undefined;
+    return typeof body?.username === 'string' ? `u:${body.username.toLowerCase().slice(0, 64)}` : 'u:anon';
+  },
+  message: { error: 'too_many_requests', message: 'Trop de tentatives pour ce compte, réessaie plus tard.' },
 });
 
 /**
@@ -116,8 +137,10 @@ authRouter.post(
 
     let viaBackup = false;
     if (parsed.data.code) {
-      const secret = vaultDecrypt(user.mfaSecret);
-      if (!verifyTotp(secret, parsed.data.code)) {
+      // F2 — AAD=userId : un secret déplacé vers un autre compte ne déchiffre pas.
+      const secret = vaultDecrypt(user.mfaSecret, user.id);
+      // S4 — consumeTotp rejette le rejeu d'un code déjà utilisé (fenêtre 90 s).
+      if (!consumeTotp(user.id, secret, parsed.data.code)) {
         await logAudit({
           action: 'LOGIN_FAILED',
           req,
@@ -179,6 +202,7 @@ authRouter.post(
  */
 authRouter.post(
   '/recover',
+  recoverSprayLimiter,
   recoverLimiter,
   asyncHandler(async (req, res) => {
     const parsed = recoverSchema.safeParse(req.body);

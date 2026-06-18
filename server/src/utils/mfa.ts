@@ -43,6 +43,51 @@ export function verifyTotp(secret: string, code: string): boolean {
   }
 }
 
+/**
+ * S4 — anti-rejeu TOTP pour la connexion.
+ *
+ * `verifyTotp` accepte un code dans une fenêtre de ±1 step (90 s). Sans garde,
+ * un même code intercepté (phishing/MITM) peut être rejoué plusieurs fois dans
+ * cette fenêtre. `consumeTotp` mémorise, par utilisateur, le dernier *step*
+ * accepté et rejette tout code dont le step est ≤ au dernier consommé
+ * (RFC 6238 §5.2).
+ *
+ * Garde en mémoire process (Map) : suffisant pour un déploiement mono-process
+ * auto-hébergé. La fenêtre de rejeu est de toute façon bornée à 90 s, donc un
+ * reset au redémarrage est sans conséquence pratique. Pour un déploiement
+ * multi-process, déporter cet état (ex. colonne `mfaLastTotpStep` ou Redis).
+ */
+const lastAcceptedStep = new Map<string, number>();
+const STEP_SECONDS = 30;
+
+export function consumeTotp(userId: string, secret: string, code: string): boolean {
+  const normalized = code.replace(/[\s-]/g, '');
+  if (!/^\d{6}$/.test(normalized)) return false;
+  let delta: number | null;
+  try {
+    // checkDelta renvoie l'écart de step (-1, 0, +1) si valide, sinon null.
+    delta = authenticator.checkDelta(normalized, secret);
+  } catch {
+    return false;
+  }
+  if (delta === null) return false;
+
+  const step = Math.floor(Date.now() / 1000 / STEP_SECONDS) + delta;
+  const last = lastAcceptedStep.get(userId);
+  if (last !== undefined && step <= last) return false; // rejeu détecté
+
+  lastAcceptedStep.set(userId, step);
+  // Borne la taille de la Map (anti-fuite mémoire) : purge grossière au-delà
+  // d'un seuil — sans horloge fine, on vide quand ça grossit trop.
+  if (lastAcceptedStep.size > 10_000) {
+    for (const k of lastAcceptedStep.keys()) {
+      lastAcceptedStep.delete(k);
+      if (lastAcceptedStep.size <= 5_000) break;
+    }
+  }
+  return true;
+}
+
 const BACKUP_CODE_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789'; // sans 0/o/1/l/i pour lisibilité
 const BACKUP_CODE_COUNT = 8;
 const BACKUP_CODE_LENGTH = 8;

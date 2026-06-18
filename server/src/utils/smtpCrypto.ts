@@ -11,12 +11,14 @@ import { env } from '../env.js';
  *                               (préféré, domain-separator RFC 5869)
  *
  * Encryption :
- *   - Si SMTP_ENCRYPTION_KEY est défini → v3 (préféré)
- *   - Sinon                              → v1 (fallback legacy)
+ *   - SMTP_ENCRYPTION_KEY défini → v3 (seul format écrit)
+ *   - SMTP_ENCRYPTION_KEY absent → ÉCHEC (F3). On NE chiffre plus jamais avec la
+ *     clé dérivée de JWT_SECRET : ça mélangeait l'usage « signature de session »
+ *     et « chiffrement au repos », et une rotation de JWT_SECRET rendait alors
+ *     le mot de passe SMTP silencieusement indéchiffrable.
  *
- * Une fois SMTP_ENCRYPTION_KEY posé, JWT_SECRET peut tourner sans casser
- * le SMTP — re-sauver le mot de passe pour migrer en v3, ou lancer
- * `npm run migrate:crypto-v2`.
+ * Les blobs `gcm:v1` (legacy, JWT_SECRET) restent lisibles en DÉCHIFFREMENT
+ * pour les installations historiques — re-sauver le mot de passe les migre en v3.
  */
 
 const SALT_V1 = Buffer.from('lockey:smtp-encryption:v1');
@@ -55,15 +57,25 @@ function keyV3(): Buffer | null {
   return cachedV3;
 }
 
+/** True si le chiffrement SMTP « propre » (v3, clé dédiée) est disponible. */
+export function smtpEncryptionConfigured(): boolean {
+  return !!env.SMTP_ENCRYPTION_KEY;
+}
+
 export function encryptSmtpPass(plaintext: string): string {
   const v3 = keyV3();
-  const version = v3 ? 'v3' : 'v1';
-  const key = v3 ?? keyV1();
+  if (!v3) {
+    // F3 : on refuse de retomber sur la clé dérivée de JWT_SECRET (v1).
+    throw new Error(
+      'SMTP_ENCRYPTION_KEY non configuré : impossible de chiffrer un mot de passe SMTP. ' +
+        'Générez-la avec `openssl rand -base64 32` et posez-la dans l\'environnement.',
+    );
+  }
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', v3, iv);
   const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return `gcm:${version}:${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
+  return `gcm:v3:${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
 }
 
 export function decryptSmtpPass(blob: string): string {
