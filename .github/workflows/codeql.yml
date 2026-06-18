@@ -1,0 +1,57 @@
+# ============================================================================
+#  CodeQL — SAST natif GitHub (analyse de flux de données)
+# ----------------------------------------------------------------------------
+#  Couvre en profondeur A05:2025 (Injection), A03/A08 (intégrité) et A01 via
+#  l'analyse taint TS/JS, en complément de Semgrep (security-owasp-2025.yml).
+#
+#  ⚠️ Pré-requis : CodeQL est GRATUIT sur les dépôts PUBLICS. Sur un dépôt
+#  PRIVÉ, il nécessite GitHub Advanced Security. Si le repo lockey est privé
+#  sans GHAS, ce workflow échouera à l'étape `init` — dans ce cas, supprimez
+#  simplement ce fichier ; la couverture SAST reste assurée par Semgrep.
+# ============================================================================
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL · JavaScript/TypeScript (A05/A03/A08)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'

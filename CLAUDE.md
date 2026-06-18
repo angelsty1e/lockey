@@ -32,3 +32,9 @@
 - server/src/utils/smtpCrypto.ts
 - server/src/utils/vaultCrypto.ts
 - server/src/validation.ts
+
+### 2026-06-18 16:27
+- .github/SECURITY-CI.md
+- .github/dependabot.yml
+- .github/workflows/codeql.yml
+- .github/workflows/security-owasp-2025.yml

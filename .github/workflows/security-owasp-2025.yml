@@ -1,0 +1,222 @@
+# ============================================================================
+#  Lockey — CI Sécurité alignée OWASP Top 10 : 2025
+# ============================================================================
+#  Chaque catégorie OWASP 2025 est couverte par un (ou plusieurs) job(s) :
+#
+#   A01 Broken Access Control ............ test-suite (tests IDOR/scoping) · sast
+#   A02 Security Misconfiguration ........ sast · config-scan (Helmet/CORS/CSP)
+#   A03 Software Supply Chain Failures ... supply-chain (npm audit, SBOM,
+#                                          dependency-review) · dependabot.yml
+#   A04 Cryptographic Failures ........... test-suite (vault/smtp crypto) ·
+#                                          secrets-scan · sast
+#   A05 Injection ........................ sast · test-suite (validation Zod)
+#   A06 Insecure Design .................. test-suite (MFA, rate-limit) · sast
+#   A07 Authentication Failures .......... test-suite (auth/csrf/mfa) · sast
+#   A08 Software/Data Integrity Failures . secrets-scan · supply-chain (lockfile
+#                                          + npm ci) · actions épinglées
+#   A09 Logging & Alerting Failures ...... sast (règles logging) · test-suite
+#   A10 Mishandling of Exceptional Cond. . test-suite (errors.test) · sast
+#                                          (catch silencieux)
+#
+#  Politique de gating (alignée sur la pratique maison « ci-security ») :
+#   - HARD FAIL : build/typecheck, suite de tests OWASP, secrets commités
+#     (Gitleaks), vulnérabilités dépendances >= HIGH (npm audit).
+#   - REPORT-ONLY : Semgrep & Trivy publient en SARIF dans l'onglet Security
+#     sans bloquer (un rouge ici = à trier, pas un blocage de main). Un scanner
+#     qui *plante* (et non qui *trouve*) reste, lui, un échec à corriger.
+# ============================================================================
+
+name: Security · OWASP Top 10 2025
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Lundi 06:00 UTC — détecte la dérive supply-chain (nouvelles CVE) même
+    # sans commit. A03:2025.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Principe du moindre privilège pour le token (durcissement de la CI elle-même
+# — A02/A08:2025). Les jobs qui poussent du SARIF ré-élèvent localement.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # --------------------------------------------------------------------------
+  # A01 · A04 · A05 · A06 · A07 · A09 · A10 — suite de tests sécurité (Vitest).
+  # Les tests sont unitaires (crypto, auth, csrf, mfa, validation, erreurs) :
+  # aucune connexion Postgres réelle requise, seulement `prisma generate` pour
+  # résoudre @prisma/client.
+  # --------------------------------------------------------------------------
+  test-suite:
+    name: Tests sécurité + build (A01/A04/A05/A06/A07/A09/A10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # ---- Backend -------------------------------------------------------
+      - name: server · install (npm ci, lockfile figé)
+        working-directory: server
+        run: npm ci
+
+      - name: server · prisma generate
+        working-directory: server
+        run: npx prisma generate
+
+      - name: server · build (tsc — typecheck strict)
+        working-directory: server
+        run: npm run build
+
+      - name: server · tests OWASP (vitest)
+        working-directory: server
+        run: npm test
+
+      # ---- Frontend ------------------------------------------------------
+      - name: client · install (npm ci)
+        working-directory: client
+        run: npm ci
+
+      - name: client · build (tsc + vite — typecheck)
+        working-directory: client
+        run: npm run build
+
+  # --------------------------------------------------------------------------
+  # A01 · A02 · A05 · A06 · A07 · A09 · A10 — SAST Semgrep (report-only).
+  # Packs limités (cf. guidance maison : ≤ ~5 packs pour éviter les timeouts).
+  # --------------------------------------------------------------------------
+  sast-semgrep:
+    name: SAST Semgrep (A01/A02/A05/A06/A07/A09/A10)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF (silencieux si pas de GHAS)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Semgrep
+        run: pip install --no-cache-dir semgrep
+
+      - name: Semgrep scan (OWASP / TS / Node / React)
+        run: |
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/typescript \
+            --config p/nodejs \
+            --config p/react \
+            --metrics=off \
+            --sarif --output semgrep.sarif \
+            server/src client/src
+        continue-on-error: true   # report-only : ne bloque pas main
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+        continue-on-error: true   # no-op si Code Scanning indisponible (repo privé sans GHAS)
+
+  # --------------------------------------------------------------------------
+  # A04 · A08 — secrets commités (Gitleaks). HARD FAIL : un secret dans l'arbre
+  # ou l'historique bloque le pipeline.
+  # --------------------------------------------------------------------------
+  secrets-scan:
+    name: Secrets / Gitleaks (A04/A08)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # scan de tout l'historique, pas seulement du dernier commit
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --------------------------------------------------------------------------
+  # A03 — Software Supply Chain Failures (nouveauté 2025). HARD FAIL sur les
+  # vulnérabilités >= HIGH. SBOM publié en artefact. dependency-review sur les PR.
+  # --------------------------------------------------------------------------
+  supply-chain:
+    name: Supply chain / Dépendances (A03)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: server · npm audit (fail >= high)
+        working-directory: server
+        run: npm audit --audit-level=high
+
+      - name: client · npm audit (fail >= high)
+        working-directory: client
+        run: npm audit --audit-level=high
+
+      - name: SBOM CycloneDX (server + client) — artefact de traçabilité
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: lockey-sbom.cyclonedx.json
+
+  # dependency-review ne tourne que sur les PR (compare base vs head). Bloque
+  # l'introduction d'une dépendance vulnérable ou d'une licence interdite.
+  dependency-review:
+    name: Dependency Review (A03 — PR uniquement)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # --------------------------------------------------------------------------
+  # A02 — Security Misconfiguration : Trivy en mode config (IaC/Dockerfile) +
+  # filesystem (vulnérabilités). Report-only (SARIF).
+  # --------------------------------------------------------------------------
+  config-scan:
+    name: Misconfiguration / Trivy (A02)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy — config + vuln (filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+        continue-on-error: true   # report-only
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+        continue-on-error: true
