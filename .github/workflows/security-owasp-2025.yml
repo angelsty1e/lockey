@@ -62,7 +62,7 @@ jobs:
     name: Tests sécurité + build (A01/A04/A05/A06/A07/A09/A10)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -105,7 +105,7 @@ jobs:
       contents: read
       security-events: write   # upload SARIF (silencieux si pas de GHAS)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -141,7 +141,7 @@ jobs:
     name: Secrets / Gitleaks (A04/A08)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # scan de tout l'historique, pas seulement du dernier commit
 
@@ -158,7 +158,7 @@ jobs:
     name: Supply chain / Dépendances (A03)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -191,7 +191,7 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
@@ -207,7 +207,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Trivy — config + vuln (filesystem)
         uses: aquasecurity/trivy-action@v0.36.0
